@@ -1,0 +1,24 @@
+{
+  "name": "pixel-canvas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Real-time collaborative pixel canvas with WebSockets, Redis, and Kubernetes",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "tsx watch server/src/index.ts",
+    "dev:client": "esbuild client/src/main.ts --bundle --sourcemap --outfile=client/dist/main.js --watch",
+    "build": "npm run build:server && npm run build:client",
+    "build:server": "tsc -p server",
+    "build:client": "esbuild client/src/main.ts --bundle --minify --sourcemap --outfile=client/dist/main.js",
+    "typecheck": "tsc -p server --noEmit && tsc -p client --noEmit",
+    "start": "node server/dist/index.js"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "concurrently": "^10.0.7",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

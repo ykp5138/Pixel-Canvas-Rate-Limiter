@@ -1,0 +1,15 @@
+# Dependencies (reinstalled from package-lock.json with `npm install`)
+node_modules/
+
+# Build output (regenerated with `npm run build`)
+server/dist/
+client/dist/
+
+# Secrets and local config
+.env
+.env.*
+
+# Logs and OS clutter
+*.log
+.DS_Store
+Thumbs.db
