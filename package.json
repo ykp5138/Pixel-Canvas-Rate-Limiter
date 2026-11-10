@@ -12,13 +12,17 @@
     "build:server": "tsc -p server",
     "build:client": "esbuild client/src/main.ts --bundle --minify --sourcemap --outfile=client/dist/main.js",
     "typecheck": "tsc -p server --noEmit && tsc -p client --noEmit",
-    "start": "node server/dist/index.js"
+    "start": "node server/dist/server/src/index.js"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
+    "@types/ws": "^8.18.2",
     "concurrently": "^10.0.7",
     "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "ws": "^8.22.2"
   }
 }
