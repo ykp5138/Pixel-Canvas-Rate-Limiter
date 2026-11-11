@@ -1,0 +1,9 @@
+# Store and check out all text files with LF line endings, on every OS.
+# Files from this repo run in Linux containers (Docker, Kubernetes, CI), where
+# Windows CRLF line endings break shell scripts.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
