@@ -59,3 +59,37 @@ export async function loadCanvas(): Promise<number[]> {
   // pixels beyond raw.length keep their default 0 (white).
   return pixels;
 }
+
+// ---------------------------------------------------------------------------
+// Cooldown (the rate limiter)
+// ---------------------------------------------------------------------------
+// One key per user, e.g. "cooldown:3f2a...". If the key exists, the user is cooling down.
+// Redis deletes it automatically after COOLDOWN_SECONDS (that's the EX option).
+
+export const COOLDOWN_SECONDS = 30;
+
+function cooldownKey(userId: string): string {
+  return `cooldown:${userId}`;
+}
+
+/**
+ * Try to start this user's cooldown.
+ * Returns true  -> no cooldown was active, so we just started one: ALLOW the pixel.
+ * Returns false -> a cooldown is already active: REJECT the pixel.
+ * Check and set happen in ONE atomic Redis command, so two simultaneous requests
+ * from the same user can never both get `true`.
+ */
+export async function tryClaimCooldown(userId: string): Promise<boolean> {
+  // SET cooldown:<userId> 1 NX EX 30. Redis replies "OK" if it set the key, null if it existed.
+  const result = await redis.set(cooldownKey(userId), "1", {
+    condition: "NX", // only if Not eXists
+    expiration: { type: "EX", value: COOLDOWN_SECONDS }, // auto-delete after 30s
+  });
+  return result === "OK";
+}
+
+/** How many seconds until this user may place again (0 if they can place now). */
+export async function getCooldownRemaining(userId: string): Promise<number> {
+  const ttl = await redis.ttl(cooldownKey(userId));
+  return Math.max(ttl, 0);
+}

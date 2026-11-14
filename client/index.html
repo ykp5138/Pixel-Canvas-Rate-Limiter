@@ -49,6 +49,9 @@
         touch-action: manipulation;
       }
       #info { margin: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+      #cooldown { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+      #cooldown.ready { color: #16a34a; }
+      #canvas.cooling { cursor: not-allowed; opacity: 0.85; }
       #palette {
         display: grid;
         grid-template-columns: repeat(8, 32px);
@@ -72,6 +75,7 @@
   <body>
     <h1>Pixel Canvas</h1>
     <p id="status">Connecting…</p>
+    <p id="cooldown"></p>
     <canvas id="canvas" width="100" height="100"></canvas>
     <p id="info">Hover over the canvas</p>
     <div id="palette" aria-label="Color palette"></div>

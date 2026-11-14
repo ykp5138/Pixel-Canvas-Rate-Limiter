@@ -11,9 +11,17 @@ import {
   PALETTE,
   type ClientMessage,
   type ServerMessage,
+  USER_ID_PATTERN,
 } from "../../shared/protocol.js";
 import { serveStatic } from "./static.js";
-import { connectRedis, loadCanvas, savePixel } from "./store.js";
+import {
+  connectRedis,
+  loadCanvas,
+  savePixel,
+  tryClaimCooldown,
+  getCooldownRemaining,
+  COOLDOWN_SECONDS,
+} from "./store.js";
 
 // `??` means "use 3000 if PORT isn't set". In milestone 3 you'll run several servers on different ports.
 const PORT = Number(process.env.PORT ?? 3000);
@@ -44,6 +52,25 @@ function broadcast(message: ServerMessage): void {
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) {
       client.send(newMessage);
+    }
+  }
+}
+
+// One user can have several tabs open, i.e. several sockets. This map lets us find
+// all of them: userId -> the set of that user's open sockets on THIS server.
+// (Java equivalent: Map<String, Set<WebSocket>> socketsByUser = new HashMap<>();)
+const socketsByUser = new Map<string, Set<WebSocket>>();
+
+/** Send one message to every open socket (tab) belonging to one user. */
+function sendToUser(userId: string, message: ServerMessage): void {
+  const sockets = socketsByUser.get(userId);
+  if (sockets === undefined) {
+    return;
+  }
+  const newMessage = JSON.stringify(message);
+  for (const socket of sockets) {
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(newMessage);
     }
   }
 }
@@ -89,8 +116,24 @@ function parseClientMessage(raw: RawData): ClientMessage | null {
 // This callback runs once for every new browser connection. `socket` is that one connection.
 // All listeners are attached BEFORE the first `await`, so nothing (a message or an error)
 // can arrive while this socket has no listener.
-wss.on("connection", async (socket) => {
+wss.on("connection", async (socket, request) => {
   console.log(`client connected (${wss.clients.size} total)`);
+
+  // Identify the user from the URL (ws://host/?userId=...). The ID goes into a Redis key,
+  // so anything that isn't a well-formed UUID is refused (1008 = policy violation).
+  const userId = new URL(request.url ?? "/", "http://localhost").searchParams.get("userId");
+  if (userId === null || !USER_ID_PATTERN.test(userId)) {
+    socket.close(1008, "Missing or invalid user ID");
+    return;
+  }
+
+  // Register this socket under its user (get-or-create the user's set).
+  let sockets = socketsByUser.get(userId);
+  if (sockets === undefined) {
+    sockets = new Set<WebSocket>();
+    socketsByUser.set(userId, sockets);
+  }
+  sockets.add(socket);
 
   // Runs every time THIS client sends a message.
   socket.on("message", async (raw) => {
@@ -100,11 +143,20 @@ wss.on("connection", async (socket) => {
       return;
     }
 
-    // Save first, broadcast only if the save succeeded. Without the catch, a Redis
-    // failure here would be an unhandled rejection and crash the whole server.
+    // Order: claim cooldown -> save -> broadcast -> tell all this user's tabs their cooldown.
+    // Claiming first ("reserve before you consume") means a second request can't slip
+    // in between saving and starting the cooldown. Without the catch, a Redis failure
+    // here would be an unhandled rejection and crash the whole server.
     try {
+      const allowed = await tryClaimCooldown(userId);
+      if (!allowed) {
+        const secondsLeft = await getCooldownRemaining(userId);
+        send(socket, { type: "cooldown", seconds: secondsLeft });
+        return;
+      }
       await savePixel(msg.x, msg.y, msg.color);
       broadcast({ type: "pixel", x: msg.x, y: msg.y, color: msg.color });
+      sendToUser(userId, { type: "cooldown", seconds: COOLDOWN_SECONDS });
     } catch (err) {
       console.error("Failed to save pixel:", err);
       send(socket, { type: "error", message: "Failed to save pixel" });
@@ -112,7 +164,12 @@ wss.on("connection", async (socket) => {
   });
 
   socket.on("close", () => {
-    // `ws` removes closed sockets from wss.clients automatically, so no cleanup is needed yet.
+    // `ws` removes closed sockets from wss.clients automatically, but socketsByUser is
+    // OUR map, so we must clean it up ourselves (otherwise it leaks memory forever).
+    socketsByUser.get(userId)?.delete(socket);
+    if (socketsByUser.get(userId)?.size === 0) {
+      socketsByUser.delete(userId);
+    }
     console.log(`client disconnected (${wss.clients.size} remaining)`);
   });
 
@@ -125,6 +182,12 @@ wss.on("connection", async (socket) => {
   // Late-joiner snapshot, read from Redis. Sent last, after the listeners above are attached.
   const pixels = await loadCanvas();
   send(socket, { type: "snapshot", width: CANVAS_WIDTH, height: CANVAS_HEIGHT, pixels });
+
+  // If this user refreshed mid-cooldown, show them the time left.
+  const secondsLeft = await getCooldownRemaining(userId);
+  if (secondsLeft > 0) {
+    send(socket, { type: "cooldown", seconds: secondsLeft });
+  }
 });
 
 // Connect to Redis BEFORE accepting users (top-level await pauses the rest of this file).

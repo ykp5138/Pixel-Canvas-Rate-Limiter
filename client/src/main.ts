@@ -1,9 +1,31 @@
 // client/src/main.ts
 //
 // Browser side of the canvas: connects to the server over a WebSocket, draws the
-// snapshot and live pixel updates, and sends "place" messages when you click.
+// snapshot and live pixel updates, sends "place" messages when you click, and shows
+// the cooldown countdown the server tells us about.
 
 import { PALETTE, type ClientMessage, type ServerMessage } from "../../shared/protocol";
+
+// ---------- User identity ----------
+// A random ID made on the first visit and kept in localStorage, so every tab in this
+// browser shares one ID (and therefore one cooldown). Known weakness: clearing site
+// data gives you a new ID. Fine for now; the cheating bots in milestone 5 will show it.
+
+function getOrCreateUserId(): string {
+  const KEY = "pixel-canvas-user-id";
+  try {
+    const existing = localStorage.getItem(KEY);
+    if (existing) return existing;
+    const fresh = crypto.randomUUID();
+    localStorage.setItem(KEY, fresh);
+    return fresh;
+  } catch {
+    // localStorage can be blocked (private mode, strict settings). Use a per-tab ID instead.
+    return crypto.randomUUID();
+  }
+}
+
+const userId = getOrCreateUserId();
 
 // ---------- DOM lookups ----------
 
@@ -16,6 +38,7 @@ function mustGet<T extends HTMLElement>(id: string): T {
 const canvasEl = mustGet<HTMLCanvasElement>("canvas");
 const statusEl = mustGet<HTMLParagraphElement>("status");
 const infoEl = mustGet<HTMLParagraphElement>("info");
+const cooldownEl = mustGet<HTMLParagraphElement>("cooldown");
 const paletteEl = mustGet<HTMLDivElement>("palette");
 
 const ctx = canvasEl.getContext("2d");
@@ -29,6 +52,34 @@ let connected = false;
 function setStatus(text: string, kind: "ok" | "bad" | "neutral"): void {
   statusEl.textContent = text;
   statusEl.className = kind === "neutral" ? "" : kind;
+}
+
+// ---------- Cooldown display ----------
+// This is only for the user's convenience. The SERVER enforces the real cooldown in
+// Redis; skipping this check from DevTools just gets you a rejection from the server.
+
+let cooldownUntil = 0; // timestamp (ms) when the user may place again
+let cooldownTimer: number | undefined;
+
+function startCooldown(seconds: number): void {
+  cooldownUntil = Date.now() + seconds * 1000;
+  window.clearInterval(cooldownTimer);
+  renderCooldown();
+  cooldownTimer = window.setInterval(renderCooldown, 250);
+}
+
+function renderCooldown(): void {
+  const msLeft = cooldownUntil - Date.now();
+  if (msLeft <= 0) {
+    window.clearInterval(cooldownTimer);
+    cooldownEl.textContent = "Ready: click to place a pixel";
+    cooldownEl.className = "ready";
+    canvasEl.classList.remove("cooling");
+    return;
+  }
+  cooldownEl.textContent = `Next pixel in ${Math.ceil(msLeft / 1000)}s`;
+  cooldownEl.className = "";
+  canvasEl.classList.add("cooling");
 }
 
 // ---------- Drawing ----------
@@ -82,7 +133,8 @@ function buildPalette(): void {
 
 // Build the WebSocket URL from the page's own address, so this works on localhost
 // now and on a real domain (with wss:// over HTTPS) at deployment time.
-const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`;
+// The user ID rides along as a query parameter: ws://localhost:3000/?userId=...
+const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/?userId=${encodeURIComponent(userId)}`;
 const socket = new WebSocket(wsUrl);
 
 function sendMessage(message: ClientMessage): void {
@@ -103,6 +155,9 @@ socket.addEventListener("message", (event) => {
     case "error":
       setStatus(`Server rejected that: ${message.message}`, "bad");
       break;
+    case "cooldown":
+      startCooldown(message.seconds);
+      break;
   }
 });
 
@@ -111,9 +166,10 @@ socket.addEventListener("open", () => {
   setStatus("Connected", "ok");
 });
 
-socket.addEventListener("close", () => {
+socket.addEventListener("close", (event) => {
   connected = false;
-  setStatus("Disconnected. Refresh the page to reconnect.", "bad");
+  const reason = event.reason ? ` (${event.reason})` : "";
+  setStatus(`Disconnected${reason}. Refresh the page to reconnect.`, "bad");
 });
 
 // ---------- Input ----------
@@ -121,6 +177,7 @@ socket.addEventListener("close", () => {
 canvasEl.addEventListener("click", (event) => {
   const pos = gridCoords(event);
   if (!pos || !connected) return;
+  if (Date.now() < cooldownUntil) return; // UX only; the server enforces it for real
   sendMessage({ type: "place", x: pos.x, y: pos.y, color: selectedColor });
 });
 
@@ -130,3 +187,4 @@ canvasEl.addEventListener("mousemove", (event) => {
 });
 
 buildPalette();
+renderCooldown();

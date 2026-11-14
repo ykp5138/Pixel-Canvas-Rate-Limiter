@@ -49,4 +49,19 @@ export type ErrorMessage = {
   message: string;
 };
 
-export type ServerMessage = SnapshotMessage | PixelMessage | ErrorMessage;
+// Tells ONE user how long until they can place again. Sent after a successful placement
+// (seconds = full cooldown), after a rejected one (seconds = time left), and on connect
+// if the user is still cooling down from before a refresh.
+export type CooldownMessage = {
+  type: "cooldown";
+  seconds: number;
+};
+
+export type ServerMessage = SnapshotMessage | PixelMessage | ErrorMessage | CooldownMessage;
+
+// ---------- User identity ----------
+
+// The browser sends its user ID in the WebSocket URL: ws://host/?userId=<id>
+// IDs are crypto.randomUUID() values (36 chars: hex digits and dashes). The server
+// rejects anything else, because this value ends up inside a Redis key.
+export const USER_ID_PATTERN = /^[0-9a-fA-F-]{36}$/;
