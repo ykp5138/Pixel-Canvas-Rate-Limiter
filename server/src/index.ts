@@ -20,6 +20,8 @@ import {
   savePixel,
   tryClaimCooldown,
   getCooldownRemaining,
+  onPixel,
+  publishPixel,
   COOLDOWN_SECONDS,
 } from "./store.js";
 
@@ -155,7 +157,9 @@ wss.on("connection", async (socket, request) => {
         return;
       }
       await savePixel(msg.x, msg.y, msg.color);
-      broadcast({ type: "pixel", x: msg.x, y: msg.y, color: msg.color });
+      // No broadcast here: this server hears its own message through onPixel (below)
+      // and broadcasts it then, like every other server. One delivery path, no duplicates.
+      await publishPixel({ x: msg.x, y: msg.y, color: msg.color });
       sendToUser(userId, { type: "cooldown", seconds: COOLDOWN_SECONDS });
     } catch (err) {
       console.error("Failed to save pixel:", err);
@@ -192,6 +196,13 @@ wss.on("connection", async (socket, request) => {
 
 // Connect to Redis BEFORE accepting users (top-level await pauses the rest of this file).
 await connectRedis();
+
+// Pixels from ALL servers (including this one) arrive here; forward them to this
+// server's tabs. Subscribed BEFORE listen(), so no user can connect while we're deaf.
+await onPixel((pixel) => {
+  broadcast({ type: "pixel", ...pixel });
+});
+
 httpServer.listen(PORT, () => {
   console.log(`server listening on http://localhost:${PORT}`);
 });

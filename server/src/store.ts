@@ -28,9 +28,19 @@ redis.on("error", (err: Error & { code?: string }) => {
   console.error("Redis error:", err.code ?? "", err.message);
 });
 
-/** Open the connection. Called once at startup, before the server accepts users. */
+// A SECOND connection, used only for listening to pub/sub channels. Once a Redis
+// connection subscribes, it switches into "subscriber mode" and can't run normal
+// commands (GET, SET, ...) anymore. So subscribing gets its own connection.
+// duplicate() = "same settings, new connection".
+const subscriber = redis.duplicate();
+subscriber.on("error", (err: Error & { code?: string }) => {
+  console.error("Redis subscriber error:", err.code ?? "", err.message);
+});
+
+/** Open both connections. Called once at startup, before the server accepts users. */
 export async function connectRedis(): Promise<void> {
   await redis.connect();
+  await subscriber.connect();
   console.log(`connected to Redis at ${REDIS_URL}`);
 }
 
@@ -92,4 +102,34 @@ export async function tryClaimCooldown(userId: string): Promise<boolean> {
 export async function getCooldownRemaining(userId: string): Promise<number> {
   const ttl = await redis.ttl(cooldownKey(userId));
   return Math.max(ttl, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Pub/sub: how servers tell each other about new pixels
+// ---------------------------------------------------------------------------
+// Every server subscribes to PIXEL_CHANNEL. When any server places a pixel, it
+// publishes it there, and Redis delivers it to EVERY subscribed server, including
+// the one that published it.
+
+const PIXEL_CHANNEL = "canvas:pixels";
+
+/** What travels over the channel: just the pixel. */
+export type PixelEvent = { x: number; y: number; color: number };
+
+/** Announce a new pixel to every server (including this one). */
+export async function publishPixel(pixel: PixelEvent): Promise<void> {
+  const message = JSON.stringify(pixel);
+  await redis.publish(PIXEL_CHANNEL, message);
+}
+
+/**
+ * Register a function to run whenever ANY server publishes a pixel.
+ * Called once at startup.
+ */
+export async function onPixel(handler: (pixel: PixelEvent) => void): Promise<void> {
+  // Messages come from our own servers, so a type assertion (not full validation) is fine.
+  await subscriber.subscribe(PIXEL_CHANNEL, (message) => {
+    const pixel = JSON.parse(message) as PixelEvent;
+    handler(pixel);
+  });
 }

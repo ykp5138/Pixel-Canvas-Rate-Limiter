@@ -8,6 +8,7 @@
     "dev": "concurrently -n server,client -c blue,magenta \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "tsx watch server/src/index.ts",
     "dev:client": "esbuild client/src/main.ts --bundle --sourcemap --outfile=client/dist/main.js --watch",
+    "dev:cluster": "concurrently -n s1,s2,s3,client -c blue,green,yellow,magenta \"cross-env PORT=3001 tsx watch server/src/index.ts\" \"cross-env PORT=3002 tsx watch server/src/index.ts\" \"cross-env PORT=3003 tsx watch server/src/index.ts\" \"npm:dev:client\"",
     "build": "npm run build:server && npm run build:client",
     "build:server": "tsc -p server",
     "build:client": "esbuild client/src/main.ts --bundle --minify --sourcemap --outfile=client/dist/main.js",
@@ -18,6 +19,7 @@
     "@types/node": "^26.6.6",
     "@types/ws": "^8.18.2",
     "concurrently": "^10.0.7",
+    "cross-env": "^10.1.0",
     "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"

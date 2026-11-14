@@ -4,7 +4,7 @@
 // snapshot and live pixel updates, sends "place" messages when you click, and shows
 // the cooldown countdown the server tells us about.
 
-import { PALETTE, type ClientMessage, type ServerMessage } from "../../shared/protocol";
+import { PALETTE, type ClientMessage, type PixelMessage, type ServerMessage } from "../../shared/protocol";
 
 // ---------- User identity ----------
 // A random ID made on the first visit and kept in localStorage, so every tab in this
@@ -143,14 +143,25 @@ function sendMessage(message: ClientMessage): void {
 
 // The handler is attached in the same synchronous block that creates the socket,
 // so the snapshot can't arrive before we're listening.
+// With multiple servers, a "pixel" message can arrive BEFORE our snapshot (the server
+// reads the snapshot over one Redis connection and hears pixels over another, so their
+// order isn't guaranteed). If we drew it immediately, the snapshot would then paint over
+// it. So pixels that arrive early wait in a queue and are replayed after the snapshot.
+let haveSnapshot = false;
+const earlyPixels: PixelMessage[] = [];
+
 socket.addEventListener("message", (event) => {
   const message = JSON.parse(event.data as string) as ServerMessage;
   switch (message.type) {
     case "snapshot":
       drawSnapshot(message.width, message.height, message.pixels);
+      for (const p of earlyPixels) drawPixel(p.x, p.y, p.color);
+      earlyPixels.length = 0;
+      haveSnapshot = true;
       break;
     case "pixel":
-      drawPixel(message.x, message.y, message.color);
+      if (haveSnapshot) drawPixel(message.x, message.y, message.color);
+      else earlyPixels.push(message);
       break;
     case "error":
       setStatus(`Server rejected that: ${message.message}`, "bad");
