@@ -1,14 +1,9 @@
-// shared/protocol.ts
-//
-// The "contract" between browser and server: canvas constants and the exact
-// shape of every message sent over the WebSocket. Both sides import this file,
-// so if a message format changes, TypeScript flags every place that needs updating.
+// Constants and message types shared by the client and server.
 
 export const CANVAS_WIDTH = 100;
 export const CANVAS_HEIGHT = 100;
 
-// 16 colors. A pixel is stored as an index into this array (0-15), not as a hex string,
-// so each pixel fits in one byte.
+// Pixels are stored as an index into this palette (one byte each).
 export const PALETTE: readonly string[] = [
   "#FFFFFF", "#E4E4E4", "#888888", "#222222",
   "#FFA7D1", "#E50000", "#E59500", "#A06A42",
@@ -16,25 +11,27 @@ export const PALETTE: readonly string[] = [
   "#0083C7", "#0000EA", "#CF6EE4", "#820080",
 ];
 
-// ---------- Browser -> Server ----------
+// Client IDs are crypto.randomUUID() values, passed as ?userId= on the WebSocket URL.
+export const USER_ID_PATTERN = /^[0-9a-fA-F-]{36}$/;
+
+// ---------- Client -> Server ----------
 
 export type PlaceMessage = {
   type: "place";
   x: number;
   y: number;
-  color: number; // index into PALETTE
+  color: number; // palette index
 };
 
-// A union with one member for now; more message types can be added later with `|`.
 export type ClientMessage = PlaceMessage;
 
-// ---------- Server -> Browser ----------
+// ---------- Server -> Client ----------
 
 export type SnapshotMessage = {
   type: "snapshot";
   width: number;
   height: number;
-  pixels: number[]; // row-major: pixel (x, y) is at index y * width + x
+  pixels: number[]; // row-major: index = y * width + x
 };
 
 export type PixelMessage = {
@@ -49,19 +46,10 @@ export type ErrorMessage = {
   message: string;
 };
 
-// Tells ONE user how long until they can place again. Sent after a successful placement
-// (seconds = full cooldown), after a rejected one (seconds = time left), and on connect
-// if the user is still cooling down from before a refresh.
+// Seconds until the user can place again.
 export type CooldownMessage = {
   type: "cooldown";
   seconds: number;
 };
 
 export type ServerMessage = SnapshotMessage | PixelMessage | ErrorMessage | CooldownMessage;
-
-// ---------- User identity ----------
-
-// The browser sends its user ID in the WebSocket URL: ws://host/?userId=<id>
-// IDs are crypto.randomUUID() values (36 chars: hex digits and dashes). The server
-// rejects anything else, because this value ends up inside a Redis key.
-export const USER_ID_PATTERN = /^[0-9a-fA-F-]{36}$/;

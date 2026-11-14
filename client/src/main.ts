@@ -1,16 +1,10 @@
-// client/src/main.ts
-//
-// Browser side of the canvas: connects to the server over a WebSocket, draws the
-// snapshot and live pixel updates, sends "place" messages when you click, and shows
-// the cooldown countdown the server tells us about.
+// Browser client: draws the canvas, sends placements, shows the cooldown.
 
 import { PALETTE, type ClientMessage, type PixelMessage, type ServerMessage } from "../../shared/protocol";
 
-// ---------- User identity ----------
-// A random ID made on the first visit and kept in localStorage, so every tab in this
-// browser shares one ID (and therefore one cooldown). Known weakness: clearing site
-// data gives you a new ID. Fine for now; the cheating bots in milestone 5 will show it.
+// ---------- User ID ----------
 
+// Stored in localStorage so all tabs in a browser share one ID (and one cooldown).
 function getOrCreateUserId(): string {
   const KEY = "pixel-canvas-user-id";
   try {
@@ -20,14 +14,14 @@ function getOrCreateUserId(): string {
     localStorage.setItem(KEY, fresh);
     return fresh;
   } catch {
-    // localStorage can be blocked (private mode, strict settings). Use a per-tab ID instead.
+    // localStorage can be blocked (e.g. private mode); fall back to a per-tab ID.
     return crypto.randomUUID();
   }
 }
 
 const userId = getOrCreateUserId();
 
-// ---------- DOM lookups ----------
+// ---------- DOM ----------
 
 function mustGet<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
@@ -46,7 +40,7 @@ if (!ctx) throw new Error("Canvas 2D context not supported");
 
 // ---------- State ----------
 
-let selectedColor = 3; // start with near-black
+let selectedColor = 3;
 let connected = false;
 
 function setStatus(text: string, kind: "ok" | "bad" | "neutral"): void {
@@ -54,11 +48,9 @@ function setStatus(text: string, kind: "ok" | "bad" | "neutral"): void {
   statusEl.className = kind === "neutral" ? "" : kind;
 }
 
-// ---------- Cooldown display ----------
-// This is only for the user's convenience. The SERVER enforces the real cooldown in
-// Redis; skipping this check from DevTools just gets you a rejection from the server.
+// ---------- Cooldown display (the server enforces the actual cooldown) ----------
 
-let cooldownUntil = 0; // timestamp (ms) when the user may place again
+let cooldownUntil = 0; // ms timestamp
 let cooldownTimer: number | undefined;
 
 function startCooldown(seconds: number): void {
@@ -83,9 +75,8 @@ function renderCooldown(): void {
 }
 
 // ---------- Drawing ----------
-// The <canvas> element is exactly 1 canvas pixel per grid cell (100x100).
-// CSS scales it up, and `image-rendering: pixelated` keeps the edges sharp.
 
+// The canvas is 100x100 real pixels, scaled up with CSS.
 function drawPixel(x: number, y: number, color: number): void {
   ctx!.fillStyle = PALETTE[color] ?? "#000000";
   ctx!.fillRect(x, y, 1, 1);
@@ -101,7 +92,7 @@ function drawSnapshot(width: number, height: number, pixels: number[]): void {
   }
 }
 
-/** Convert a mouse position on the (scaled) canvas element to grid coordinates. */
+/** Mouse position -> grid cell, or null if outside the canvas. */
 function gridCoords(event: MouseEvent): { x: number; y: number } | null {
   const rect = canvasEl.getBoundingClientRect();
   const x = Math.floor(((event.clientX - rect.left) / rect.width) * canvasEl.width);
@@ -131,9 +122,6 @@ function buildPalette(): void {
 
 // ---------- Networking ----------
 
-// Build the WebSocket URL from the page's own address, so this works on localhost
-// now and on a real domain (with wss:// over HTTPS) at deployment time.
-// The user ID rides along as a query parameter: ws://localhost:3000/?userId=...
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/?userId=${encodeURIComponent(userId)}`;
 const socket = new WebSocket(wsUrl);
 
@@ -141,12 +129,7 @@ function sendMessage(message: ClientMessage): void {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
 }
 
-// The handler is attached in the same synchronous block that creates the socket,
-// so the snapshot can't arrive before we're listening.
-// With multiple servers, a "pixel" message can arrive BEFORE our snapshot (the server
-// reads the snapshot over one Redis connection and hears pixels over another, so their
-// order isn't guaranteed). If we drew it immediately, the snapshot would then paint over
-// it. So pixels that arrive early wait in a queue and are replayed after the snapshot.
+// Pixels can arrive before the snapshot; queue them and replay after it's drawn.
 let haveSnapshot = false;
 const earlyPixels: PixelMessage[] = [];
 
@@ -188,7 +171,7 @@ socket.addEventListener("close", (event) => {
 canvasEl.addEventListener("click", (event) => {
   const pos = gridCoords(event);
   if (!pos || !connected) return;
-  if (Date.now() < cooldownUntil) return; // UX only; the server enforces it for real
+  if (Date.now() < cooldownUntil) return;
   sendMessage({ type: "place", x: pos.x, y: pos.y, color: selectedColor });
 });
 
