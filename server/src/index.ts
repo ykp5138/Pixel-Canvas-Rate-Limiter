@@ -1,5 +1,7 @@
 // server/src/index.ts
-
+//
+// HTTP server (serves the page) + WebSocket server (live pixels) on one port.
+// The canvas is stored in Redis (see store.ts), so it survives server restarts.
 
 import { createServer } from "node:http";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
@@ -9,19 +11,12 @@ import {
   PALETTE,
   type ClientMessage,
   type ServerMessage,
-} from "../../shared/protocol.js"; 
+} from "../../shared/protocol.js";
 import { serveStatic } from "./static.js";
+import { connectRedis, loadCanvas, savePixel } from "./store.js";
 
-
+// `??` means "use 3000 if PORT isn't set". In milestone 3 you'll run several servers on different ports.
 const PORT = Number(process.env.PORT ?? 3000);
-
-
-const canvas = new Uint8Array(CANVAS_WIDTH * CANVAS_HEIGHT);
-
-/** Convert (x, y) to a position in the flat canvas array (row-major order). */
-function indexOf(x: number, y: number): number {
-  return (y * CANVAS_WIDTH + x);
-}
 
 // ---------------------------------------------------------------------------
 // Servers
@@ -56,7 +51,7 @@ function broadcast(message: ServerMessage): void {
 /**
  * Check that `value` is an integer with min <= value < maxExclusive.
  * The return type `value is number` is a "type predicate". When this returns true,
- * TypeScript treats `value` as a number in the calling code. (Already written for you.)
+ * TypeScript treats `value` as a number in the calling code.
  */
 function isIntInRange(value: unknown, min: number, maxExclusive: number): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= min && value < maxExclusive;
@@ -92,22 +87,28 @@ function parseClientMessage(raw: RawData): ClientMessage | null {
 // ---------------------------------------------------------------------------
 
 // This callback runs once for every new browser connection. `socket` is that one connection.
-wss.on("connection", (socket) => {
+// All listeners are attached BEFORE the first `await`, so nothing (a message or an error)
+// can arrive while this socket has no listener.
+wss.on("connection", async (socket) => {
   console.log(`client connected (${wss.clients.size} total)`);
-  send(socket, { type: "snapshot", width: CANVAS_WIDTH, height: CANVAS_HEIGHT, pixels: Array.from(canvas) });
 
   // Runs every time THIS client sends a message.
-  socket.on("message", (raw) => {
-
+  socket.on("message", async (raw) => {
     const msg = parseClientMessage(raw);
     if (msg === null) {
       send(socket, { type: "error", message: "Invalid message" });
       return;
     }
 
-    const { x, y, color } = msg;
-    canvas[indexOf(x, y)] = color;
-    broadcast({ type: "pixel", x, y, color });
+    // Save first, broadcast only if the save succeeded. Without the catch, a Redis
+    // failure here would be an unhandled rejection and crash the whole server.
+    try {
+      await savePixel(msg.x, msg.y, msg.color);
+      broadcast({ type: "pixel", x: msg.x, y: msg.y, color: msg.color });
+    } catch (err) {
+      console.error("Failed to save pixel:", err);
+      send(socket, { type: "error", message: "Failed to save pixel" });
+    }
   });
 
   socket.on("close", () => {
@@ -120,8 +121,14 @@ wss.on("connection", (socket) => {
   socket.on("error", (err) => {
     console.error("socket error:", err.message);
   });
+
+  // Late-joiner snapshot, read from Redis. Sent last, after the listeners above are attached.
+  const pixels = await loadCanvas();
+  send(socket, { type: "snapshot", width: CANVAS_WIDTH, height: CANVAS_HEIGHT, pixels });
 });
 
+// Connect to Redis BEFORE accepting users (top-level await pauses the rest of this file).
+await connectRedis();
 httpServer.listen(PORT, () => {
   console.log(`server listening on http://localhost:${PORT}`);
 });

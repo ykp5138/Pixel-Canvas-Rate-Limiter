@@ -22,8 +22,10 @@ const redis = createClient({ url: REDIS_URL });
 
 // Without an error listener, a lost Redis connection would crash the whole server
 // (same reason as socket.on("error") in index.ts). The client also reconnects on its own.
-redis.on("error", (err: Error) => {
-  console.error("Redis error:", err.message);
+// Connection errors (like ECONNREFUSED when Redis is down) often have an empty
+// .message, so log the error code too.
+redis.on("error", (err: Error & { code?: string }) => {
+  console.error("Redis error:", err.code ?? "", err.message);
 });
 
 /** Open the connection. Called once at startup, before the server accepts users. */
