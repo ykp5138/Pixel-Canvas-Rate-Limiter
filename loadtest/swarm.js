@@ -3,6 +3,8 @@
 //   docker compose run --rm k6 run /scripts/swarm.js
 //   docker compose run --rm -e BOTS=lurker,placer -e SCALE=5 k6 run /scripts/swarm.js
 //   docker compose run --rm -e BOTS=lurker,placer -e PROFILE=ramp -e SCALE=50 k6 run /scripts/swarm.js
+//
+// After `--scale app=N`, add --no-deps, or `run` resets app back to the compose file's replica count.
 
 import { WebSocket } from "k6/websockets";
 import { setTimeout, clearTimeout, setInterval, clearInterval } from "k6/timers";
