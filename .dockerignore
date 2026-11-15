@@ -10,3 +10,5 @@ docker-compose.yml
 .env
 .env.*
 README.md
+loadtest
+monitoring

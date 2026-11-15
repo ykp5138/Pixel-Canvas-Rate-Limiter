@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: app
+    # "app" resolves to every replica, so each one is scraped separately
+    dns_sd_configs:
+      - names: ["app"]
+        type: A
+        port: 3000
+        refresh_interval: 10s
