@@ -2,6 +2,7 @@
 //
 //   docker compose run --rm k6 run /scripts/swarm.js
 //   docker compose run --rm -e BOTS=lurker,placer -e SCALE=5 k6 run /scripts/swarm.js
+//   docker compose run --rm -e BOTS=lurker,placer -e PROFILE=ramp -e SCALE=50 k6 run /scripts/swarm.js
 
 import { WebSocket } from "k6/websockets";
 import { setTimeout, clearTimeout, setInterval, clearInterval } from "k6/timers";
@@ -11,6 +12,10 @@ const TARGET = __ENV.TARGET || "ws://localhost:8080";
 const DURATION = __ENV.DURATION || "1m";
 const SCALE = Number(__ENV.SCALE || 1);
 const BOTS = (__ENV.BOTS || "lurker,placer,spammer,hopper,garbage").split(",");
+// "constant": full SCALE for DURATION. "ramp": climb to SCALE in STEPS steps, holding each for STEP.
+const PROFILE = __ENV.PROFILE || "constant";
+const STEPS = Number(__ENV.STEPS || 5);
+const STEP = __ENV.STEP || "1m";
 
 const WIDTH = 100;
 const HEIGHT = 100;
@@ -40,20 +45,36 @@ const ALL_SCENARIOS = {
   garbage: { exec: "garbage", vus: 1 },
 };
 
+function rampStages(peak) {
+  const stages = [];
+  for (let i = 1; i <= STEPS; i++) {
+    const target = Math.max(1, Math.round((peak * i) / STEPS));
+    stages.push({ duration: "30s", target }); // climb
+    stages.push({ duration: STEP, target }); // hold
+  }
+  stages.push({ duration: "30s", target: 0 });
+  return stages;
+}
+
 const scenarios = {};
+const thresholds = {};
 for (const name of BOTS) {
   const s = ALL_SCENARIOS[name];
   if (!s) throw new Error(`unknown bot type: ${name}`);
-  scenarios[name] = {
-    executor: "constant-vus",
-    exec: s.exec,
-    vus: Math.max(1, Math.round(s.vus * SCALE)),
-    duration: DURATION,
-    gracefulStop: "10s",
-  };
+  const peak = Math.max(1, Math.round(s.vus * SCALE));
+  scenarios[name] =
+    PROFILE === "ramp"
+      ? { executor: "ramping-vus", exec: s.exec, startVUs: 0, stages: rampStages(peak), gracefulRampDown: "10s" }
+      : { executor: "constant-vus", exec: s.exec, vus: peak, duration: DURATION, gracefulStop: "10s" };
+
+  // No-op thresholds so the summary breaks these down per bot type
+  if (["placer", "spammer", "hopper"].includes(name)) {
+    thresholds[`places_sent{scenario:${name}}`] = ["count>=0"];
+    thresholds[`pixels_accepted{scenario:${name}}`] = ["count>=0"];
+  }
 }
 
-export const options = { scenarios };
+export const options = { scenarios, thresholds };
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -122,6 +143,9 @@ export function placer() {
   };
   
   function placeNow() {
+    if (ws.readyState !== 1){
+      return
+    }
     const msg = randomPlace();
     sendJson(ws, msg);
     placesSent.add(1);
@@ -169,6 +193,9 @@ export function spammer() {
     }, randomMs(60,120));
     timerId = setInterval(() => {
       const randomPixel = randomPlace();
+      if(ws.readyState !== 1){
+        return
+      }
       sendJson(ws, randomPixel);
       placesSent.add(1);
     }, 200);

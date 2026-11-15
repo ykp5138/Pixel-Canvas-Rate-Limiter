@@ -35,6 +35,11 @@ services:
   prometheus:
     image: prom/prometheus:v3.1.0
     restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Lets k6 push its client-side metrics
+      - --web.enable-remote-write-receiver
     ports:
       - "9090:9090"
     volumes:
@@ -67,6 +72,10 @@ services:
     profiles: ["loadtest"]
     environment:
       TARGET: ws://lb:80
+      # Push client-side metrics to Prometheus so they show in Grafana
+      K6_OUT: experimental-prometheus-rw
+      K6_PROMETHEUS_RW_SERVER_URL: http://prometheus:9090/api/v1/write
+      K6_PROMETHEUS_RW_TREND_STATS: p(50),p(95),p(99)
     volumes:
       - ./loadtest:/scripts:ro
     depends_on:
