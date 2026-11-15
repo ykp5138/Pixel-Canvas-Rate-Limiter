@@ -11,6 +11,7 @@ import {
   USER_ID_PATTERN,
 } from "../../shared/protocol.js";
 import { serveStatic } from "./static.js";
+import { serveMetrics, wsConnections, pixelsPlacedTotal, pixelsRejectedTotal, placeDurationSeconds } from "./metrics.js";
 import {
   connectRedis,
   loadCanvas,
@@ -26,7 +27,13 @@ import {
 
 const PORT = Number(process.env.PORT ?? 3000);
 
-const httpServer = createServer(serveStatic);
+const httpServer = createServer((req, res) => {
+  if (req.url === "/metrics") {
+    void serveMetrics(res);
+    return;
+  }
+  void serveStatic(req, res);
+});
 const wss = new WebSocketServer({ server: httpServer });
 
 // ---------------------------------------------------------------------------
@@ -113,11 +120,14 @@ wss.on("connection", async (socket, request) => {
     socketsByUser.set(userId, sockets);
   }
   sockets.add(socket);
+  wsConnections.inc();
 
   // Runs every time THIS client sends a message.
   socket.on("message", async (raw) => {
+    const stopTimer = placeDurationSeconds.startTimer();
     const msg = parseClientMessage(raw);
     if (msg === null) {
+      pixelsRejectedTotal.inc({ reason: "invalid" });
       send(socket, { type: "error", message: "Invalid message" });
       return;
     }
@@ -126,6 +136,7 @@ wss.on("connection", async (socket, request) => {
       // Claim the cooldown before saving so concurrent requests can't both get through.
       const allowed = await tryClaimCooldown(userId);
       if (!allowed) {
+        pixelsRejectedTotal.inc({ reason: "cooldown" });
         const secondsLeft = await getCooldownRemaining(userId);
         send(socket, { type: "cooldown", seconds: secondsLeft });
         return;
@@ -134,13 +145,17 @@ wss.on("connection", async (socket, request) => {
       // Delivered to clients by the onPixel / onCooldown subscribers below.
       await publishPixel({ x: msg.x, y: msg.y, color: msg.color });
       await publishCooldown({ userId, seconds: COOLDOWN_SECONDS });
+      pixelsPlacedTotal.inc();
+      stopTimer();
     } catch (err) {
+      pixelsRejectedTotal.inc({ reason: "error" });
       console.error("Failed to save pixel:", err);
       send(socket, { type: "error", message: "Failed to save pixel" });
     }
   });
 
   socket.on("close", () => {
+    wsConnections.dec();
     socketsByUser.get(userId)?.delete(socket);
     if (socketsByUser.get(userId)?.size === 0) {
       socketsByUser.delete(userId);
