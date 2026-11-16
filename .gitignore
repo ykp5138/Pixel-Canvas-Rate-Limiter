@@ -13,3 +13,4 @@ client/dist/
 *.log
 .DS_Store
 Thumbs.db
+profiles/

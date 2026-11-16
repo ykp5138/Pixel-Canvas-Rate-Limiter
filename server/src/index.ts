@@ -14,6 +14,7 @@ import { serveStatic } from "./static.js";
 import { serveMetrics, wsConnections, pixelsPlacedTotal, pixelsRejectedTotal, placeDurationSeconds } from "./metrics.js";
 import {
   connectRedis,
+  disconnectRedis,
   loadCanvas,
   savePixel,
   tryClaimCooldown,
@@ -24,6 +25,7 @@ import {
   onCooldown,
   COOLDOWN_SECONDS,
 } from "./store.js";
+import { disconnect } from "node:cluster";
 
 const PORT = Number(process.env.PORT ?? 3000);
 
@@ -195,3 +197,26 @@ await onCooldown((event) => {
 httpServer.listen(PORT, () => {
   console.log(`server listening on http://localhost:${PORT}`);
 });
+
+// ---------------------------------------------------------------------------
+// Shutdown
+// ---------------------------------------------------------------------------
+
+let shuttingDown = false;
+
+async function gracefulShutdown (signal: string): Promise<void> {
+  if(shuttingDown){
+    return;
+  }
+  shuttingDown = true;
+  console.log(`${signal} received, shutting down`);
+  httpServer.close();
+  for(const socket of wss.clients){
+    socket.close(1001, "Server shutting down");
+  }
+  await disconnectRedis();
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));

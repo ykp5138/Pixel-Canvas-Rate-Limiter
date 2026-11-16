@@ -29,6 +29,11 @@ export async function connectRedis(): Promise<void> {
   console.log(`connected to Redis at ${REDIS_URL}`);
 }
 
+export async function disconnectRedis(): Promise<void> {
+  await redis.close();
+  await subscriber.close();
+}
+
 // ---------------------------------------------------------------------------
 // Canvas
 // ---------------------------------------------------------------------------
