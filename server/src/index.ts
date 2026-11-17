@@ -187,7 +187,7 @@ wss.on("connection", async (socket, request) => {
 
 await connectRedis();
 
-// TODO B1: pending pixels + batch interval
+
 const pendingPixels: PixelUpdate[] = [];
 const batchMS = Number(process.env.BATCH_MS ?? 100);
 

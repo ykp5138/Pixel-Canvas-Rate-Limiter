@@ -114,7 +114,6 @@ function sendJson(ws, message) {
 // Bots
 // ---------------------------------------------------------------------------
 
-// TODO C1: lurker
 export function lurker() {
   const userId = crypto.randomUUID();
   const startTime = Date.now();
