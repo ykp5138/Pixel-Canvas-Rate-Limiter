@@ -1,0 +1,21 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: app
+    # Ask the Kubernetes API for pods, keep only the app's pods
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: [pixel-canvas]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        regex: pixel-canvas
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_container_port_name]
+        regex: http
+        action: keep
+      # Label series by pod name instead of IP
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: instance
