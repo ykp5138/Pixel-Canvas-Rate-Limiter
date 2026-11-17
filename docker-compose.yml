@@ -19,6 +19,8 @@ services:
       REDIS_URL: redis://redis:6379
       # Set to "--cpu-prof --cpu-prof-dir=/profiles" to profile
       NODE_OPTIONS: ${NODE_OPTIONS:-}
+      # Wait this long after SIGTERM before closing (lets load balancers stop routing here)
+      DRAIN_MS: ${DRAIN_MS:-0}
     volumes:
       - ./profiles:/profiles
     depends_on:

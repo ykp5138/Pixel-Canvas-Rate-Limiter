@@ -16,6 +16,7 @@ import { serveMetrics, wsConnections, pixelsPlacedTotal, pixelsRejectedTotal, pl
 import {
   connectRedis,
   disconnectRedis,
+  isRedisReady,
   loadCanvas,
   savePixel,
   tryClaimCooldown,
@@ -26,7 +27,7 @@ import {
   onCooldown,
   COOLDOWN_SECONDS,
 } from "./store.js";
-import { disconnect } from "node:cluster";
+
 
 const PORT = Number(process.env.PORT ?? 3000);
 
@@ -34,6 +35,24 @@ const httpServer = createServer((req, res) => {
   if (req.url === "/metrics") {
     void serveMetrics(res);
     return;
+  }
+
+  if(req.url === "/healthz"){
+    res.writeHead(200, {"Content-Type": "text/plain"});
+    res.end("ok");
+    return;
+  }
+  // TODO H3: /readyz
+  if(req.url === "/readyz"){
+    if(shuttingDown || !isRedisReady()){
+      res.writeHead(503, {"Content-Type": "text/plain"});
+      res.end("not ready");
+      return;
+    } else {
+      res.writeHead(200, {"Content-Type": "text/plain"});
+      res.end("ready");
+      return;
+    }
   }
   void serveStatic(req, res);
 });
@@ -226,6 +245,8 @@ async function gracefulShutdown (signal: string): Promise<void> {
     return;
   }
   shuttingDown = true;
+  // TODO H4: drain delay
+  await new Promise((resolve) => setTimeout(resolve,Number(process.env.DRAIN_MS ?? 0)));
   console.log(`${signal} received, shutting down`);
   httpServer.close();
   flushPixels();

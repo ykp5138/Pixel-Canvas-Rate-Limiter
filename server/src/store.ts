@@ -34,6 +34,13 @@ export async function disconnectRedis(): Promise<void> {
   await subscriber.close();
 }
 
+export function isRedisReady(): boolean {
+  if(redis.isReady && subscriber.isReady){
+    return true;
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // Canvas
 // ---------------------------------------------------------------------------
