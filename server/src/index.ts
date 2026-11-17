@@ -187,14 +187,20 @@ wss.on("connection", async (socket, request) => {
   });
 
   // Listeners are attached above, before the first await.
-  const pixels = await loadCanvas();
-  send(socket, { type: "snapshot", width: CANVAS_WIDTH, height: CANVAS_HEIGHT, pixels });
+  try {
+    const pixels = await loadCanvas();
+    send(socket, { type: "snapshot", width: CANVAS_WIDTH, height: CANVAS_HEIGHT, pixels });
 
-  // Resume the countdown if the user refreshed mid-cooldown.
-  const secondsLeft = await getCooldownRemaining(userId);
-  if (secondsLeft > 0) {
-    send(socket, { type: "cooldown", seconds: secondsLeft });
+    // Resume the countdown if the user refreshed mid-cooldown.
+    const secondsLeft = await getCooldownRemaining(userId);
+    if (secondsLeft > 0) {
+      send(socket, { type: "cooldown", seconds: secondsLeft });
+    }
+  } catch (err) {
+    console.log("")
+    socket.close(1013, "Server busy, try again");
   }
+  
 });
 
 // ---------------------------------------------------------------------------

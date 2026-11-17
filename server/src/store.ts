@@ -10,7 +10,8 @@ const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
 
 const CANVAS_KEY = "canvas";
 
-const redis = createClient({ url: REDIS_URL });
+const REDIS_TIMEOUT_MS = Number(process.env.REDIS_TIMEOUT_MS ?? 2000)
+const redis = createClient({ url: REDIS_URL, disableOfflineQueue: true, commandOptions: { timeout: REDIS_TIMEOUT_MS } });
 
 redis.on("error", (err: Error & { code?: string }) => {
   // Connection errors like ECONNREFUSED often have an empty message.
