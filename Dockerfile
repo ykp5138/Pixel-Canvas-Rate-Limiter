@@ -24,5 +24,5 @@ COPY --from=build /app/client/index.html ./client/index.html
 COPY --from=build /app/client/dist ./client/dist
 
 USER node
-EXPOSE 3000
+EXPOSE 3000 9100
 CMD ["node", "server/dist/server/src/index.js"]

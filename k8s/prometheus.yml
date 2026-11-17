@@ -14,7 +14,7 @@ scrape_configs:
         regex: pixel-canvas
         action: keep
       - source_labels: [__meta_kubernetes_pod_container_port_name]
-        regex: http
+        regex: metrics
         action: keep
       # Label series by pod name instead of IP
       - source_labels: [__meta_kubernetes_pod_name]

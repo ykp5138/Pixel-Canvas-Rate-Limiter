@@ -12,7 +12,7 @@ import {
   USER_ID_PATTERN,
 } from "../../shared/protocol.js";
 import { serveStatic } from "./static.js";
-import { serveMetrics, wsConnections, pixelsPlacedTotal, pixelsRejectedTotal, placeDurationSeconds } from "./metrics.js";
+import { startMetricsServer, wsConnections, pixelsPlacedTotal, pixelsRejectedTotal, placeDurationSeconds } from "./metrics.js";
 import {
   connectRedis,
   disconnectRedis,
@@ -30,12 +30,9 @@ import {
 
 
 const PORT = Number(process.env.PORT ?? 3000);
+const METRICS_PORT = Number(process.env.METRICS_PORT ?? 9100);
 
 const httpServer = createServer((req, res) => {
-  if (req.url === "/metrics") {
-    void serveMetrics(res);
-    return;
-  }
 
   if(req.url === "/healthz"){
     res.writeHead(200, {"Content-Type": "text/plain"});
@@ -233,6 +230,8 @@ await onCooldown((event) => {
 httpServer.listen(PORT, () => {
   console.log(`server listening on http://localhost:${PORT}`);
 });
+startMetricsServer(METRICS_PORT);
+// TODO C1c: start the metrics server on METRICS_PORT (env, default 9100)
 
 // ---------------------------------------------------------------------------
 // Shutdown

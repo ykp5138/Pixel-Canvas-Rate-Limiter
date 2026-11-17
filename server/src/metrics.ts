@@ -1,6 +1,6 @@
 // Prometheus metrics, served at /metrics.
 
-import type { ServerResponse } from "node:http";
+import { type ServerResponse, createServer } from "node:http";
 import { register, collectDefaultMetrics, Counter, Gauge, Histogram } from "prom-client";
 
 // CPU, memory, event loop lag, GC
@@ -32,3 +32,20 @@ export async function serveMetrics(res: ServerResponse): Promise<void> {
   res.writeHead(200, { "Content-Type": register.contentType });
   res.end(await register.metrics());
 }
+
+
+export function startMetricsServer(port: number): void {
+  const server = createServer((req, res) => {
+    if(req.url === "/metrics"){
+      void serveMetrics(res);
+      return;
+    } else {
+      res.writeHead(404, {"Content-Type": "text/plain"});
+      res.end("Not found");
+      return;
+    }
+  });
+  server.listen(port, () => {
+    console.log(`metrics on http://localhost:${port}/metrics`);
+  });
+};

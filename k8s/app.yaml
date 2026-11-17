@@ -35,6 +35,8 @@ spec:
           ports:
             - name: http
               containerPort: 3000
+            - name: metrics # not in the Service; only Prometheus scrapes it
+              containerPort: 9100
           env:
             - name: PORT
               value: "3000"
@@ -44,6 +46,8 @@ spec:
               value: "100"
             - name: DRAIN_MS
               value: "5000"
+            - name: METRICS_PORT
+              value: "9100"
           livenessProbe:
             httpGet:
               path: /healthz
