@@ -123,7 +123,7 @@ function buildPalette(): void {
 // ---------- Networking ----------
 
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/?userId=${encodeURIComponent(userId)}`;
-const socket = new WebSocket(wsUrl);
+let socket: WebSocket;
 
 function sendMessage(message: ClientMessage): void {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
@@ -133,39 +133,63 @@ function sendMessage(message: ClientMessage): void {
 let haveSnapshot = false;
 const earlyPixels: PixelUpdate[] = [];
 
-socket.addEventListener("message", (event) => {
-  const message = JSON.parse(event.data as string) as ServerMessage;
-  switch (message.type) {
-    case "snapshot":
-      drawSnapshot(message.width, message.height, message.pixels);
-      for (const p of earlyPixels) drawPixel(p.x, p.y, p.color);
-      earlyPixels.length = 0;
-      haveSnapshot = true;
-      break;
-    case "pixels":
-      if (haveSnapshot) for (const p of message.pixels) drawPixel(p.x, p.y, p.color);
-      else earlyPixels.push(...message.pixels);
-      break;
-    case "error":
-      setStatus(`Server rejected that: ${message.message}`, "bad");
-      break;
-    case "cooldown":
-      startCooldown(message.seconds);
-      break;
-  }
-});
 
-socket.addEventListener("open", () => {
-  connected = true;
-  setStatus("Connected", "ok");
-});
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 30000;
+let reconnectAttempt = 0;
 
-socket.addEventListener("close", (event) => {
-  connected = false;
-  const reason = event.reason ? ` (${event.reason})` : "";
-  setStatus(`Disconnected${reason}. Refresh the page to reconnect.`, "bad");
-});
 
+function reconnectDelayMs(attempt: number): number {
+  const backoff = Math.min(RECONNECT_BASE_MS * (2**attempt), RECONNECT_MAX_MS);
+  return (Math.random()*backoff);
+}
+
+function connect(): void {
+  haveSnapshot = false;
+  earlyPixels.length = 0;
+  socket = new WebSocket(wsUrl);
+
+  socket.addEventListener("message", (event) => {
+    const message = JSON.parse(event.data as string) as ServerMessage;
+    switch (message.type) {
+      case "snapshot":
+        drawSnapshot(message.width, message.height, message.pixels);
+        for (const p of earlyPixels) drawPixel(p.x, p.y, p.color);
+        earlyPixels.length = 0;
+        haveSnapshot = true;
+        reconnectAttempt = 0;
+        break;
+      case "pixels":
+        if (haveSnapshot) for (const p of message.pixels) drawPixel(p.x, p.y, p.color);
+        else earlyPixels.push(...message.pixels);
+        break;
+      case "error":
+        setStatus(`Server rejected that: ${message.message}`, "bad");
+        break;
+      case "cooldown":
+        startCooldown(message.seconds);
+        break;
+    }
+  });
+
+  socket.addEventListener("open", () => {
+    connected = true;
+    setStatus("Connected", "ok");
+  });
+
+  socket.addEventListener("close", (event) => {
+    connected = false;
+    const reason = event.reason ? ` (${event.reason})` : "";
+    if(event.code === 1008){
+      setStatus(`Disconnected${reason}. Refresh the page to reconnect.`, "bad");
+      return;
+    }
+    const delay = reconnectDelayMs(reconnectAttempt);
+    reconnectAttempt++;
+    setStatus(`Disconnected${reason}. Reconnecting in ${Math.ceil(delay/1000)}s.`, "bad");
+    setTimeout(connect, delay);
+  });
+}
 // ---------- Input ----------
 
 canvasEl.addEventListener("click", (event) => {
@@ -179,6 +203,7 @@ canvasEl.addEventListener("mousemove", (event) => {
   const pos = gridCoords(event);
   infoEl.textContent = pos ? `(${pos.x}, ${pos.y})` : "Hover over the canvas";
 });
-
 buildPalette();
 renderCooldown();
+connect();
+
