@@ -8,6 +8,7 @@ import {
   PALETTE,
   type ClientMessage,
   type ServerMessage,
+  type PixelUpdate,
   USER_ID_PATTERN,
 } from "../../shared/protocol.js";
 import { serveStatic } from "./static.js";
@@ -186,9 +187,25 @@ wss.on("connection", async (socket, request) => {
 
 await connectRedis();
 
+// TODO B1: pending pixels + batch interval
+const pendingPixels: PixelUpdate[] = [];
+const batchMS = Number(process.env.BATCH_MS ?? 100);
+
+
 await onPixel((pixel) => {
-  broadcast({ type: "pixel", ...pixel });
+  pendingPixels.push(pixel);
 });
+
+function flushPixels () {
+  if (pendingPixels.length === 0){
+    return;
+  } else {
+    broadcast({type: "pixels", pixels: pendingPixels});
+    pendingPixels.length = 0;
+  }
+};
+
+setInterval(flushPixels, batchMS);
 
 await onCooldown((event) => {
   sendToUser(event.userId, { type: "cooldown", seconds: event.seconds });
@@ -211,6 +228,7 @@ async function gracefulShutdown (signal: string): Promise<void> {
   shuttingDown = true;
   console.log(`${signal} received, shutting down`);
   httpServer.close();
+  flushPixels();
   for(const socket of wss.clients){
     socket.close(1001, "Server shutting down");
   }

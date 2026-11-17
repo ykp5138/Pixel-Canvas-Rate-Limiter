@@ -1,6 +1,6 @@
 // Browser client: draws the canvas, sends placements, shows the cooldown.
 
-import { PALETTE, type ClientMessage, type PixelMessage, type ServerMessage } from "../../shared/protocol";
+import { PALETTE, type ClientMessage, type PixelUpdate, type ServerMessage } from "../../shared/protocol";
 
 // ---------- User ID ----------
 
@@ -131,7 +131,7 @@ function sendMessage(message: ClientMessage): void {
 
 // Pixels can arrive before the snapshot; queue them and replay after it's drawn.
 let haveSnapshot = false;
-const earlyPixels: PixelMessage[] = [];
+const earlyPixels: PixelUpdate[] = [];
 
 socket.addEventListener("message", (event) => {
   const message = JSON.parse(event.data as string) as ServerMessage;
@@ -142,9 +142,9 @@ socket.addEventListener("message", (event) => {
       earlyPixels.length = 0;
       haveSnapshot = true;
       break;
-    case "pixel":
-      if (haveSnapshot) drawPixel(message.x, message.y, message.color);
-      else earlyPixels.push(message);
+    case "pixels":
+      if (haveSnapshot) for (const p of message.pixels) drawPixel(p.x, p.y, p.color);
+      else earlyPixels.push(...message.pixels);
       break;
     case "error":
       setStatus(`Server rejected that: ${message.message}`, "bad");

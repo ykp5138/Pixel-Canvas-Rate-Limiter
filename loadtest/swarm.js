@@ -168,14 +168,14 @@ export function placer() {
       planPlacement(randomMs(1,5));
     } else if (msg.type === "cooldown"){
       planPlacement(msg.seconds * 1000 + randomMs(1,5));
-    } else if (msg.type === "pixel") {
-      if (pendingPixel && msg.x === pendingPixel.x && msg.y === pendingPixel.y && msg.color === pendingPixel.color) {
+    } else if (msg.type === "pixels") {
+      if(pendingPixel && msg.pixels.some(p=> p.x === pendingPixel.x && p.y === pendingPixel.y && p.color === pendingPixel.color)){
         pixelRoundTrip.add(Date.now() - pendingPixel.sentAt);
         pixelsAccepted.add(1);
         pendingPixel = null;
-      }
+      };
     }
-  };
+  }
 
   ws.onclose = (event) => {
     clearTimeout(timerId);
@@ -207,7 +207,7 @@ export function spammer() {
   };
 }
 
-// TODO C4: hopper
+
 export function hopper() {
   const userId = crypto.randomUUID();
   let pendingPixel = null;
@@ -227,8 +227,8 @@ export function hopper() {
       placesSent.add(1);
       pendingPixel = { ...randomPixel, sentAt: Date.now() };
     }
-    if (msg.type === "pixel") {
-      if (pendingPixel && msg.x === pendingPixel.x && msg.y === pendingPixel.y && msg.color === pendingPixel.color) {
+    if (msg.type === "pixels") {
+      if(pendingPixel && msg.pixels.some(p=> p.x === pendingPixel.x && p.y === pendingPixel.y && p.color === pendingPixel.color)){
         pixelsAccepted.add(1);
         ws.close();
       }

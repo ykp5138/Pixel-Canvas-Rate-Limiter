@@ -34,11 +34,16 @@ export type SnapshotMessage = {
   pixels: number[]; // row-major: index = y * width + x
 };
 
-export type PixelMessage = {
-  type: "pixel";
+export type PixelUpdate = {
   x: number;
   y: number;
   color: number;
+};
+
+// Pixels placed since the last batch, oldest first.
+export type PixelsMessage = {
+  type: "pixels";
+  pixels: PixelUpdate[];
 };
 
 export type ErrorMessage = {
@@ -52,4 +57,4 @@ export type CooldownMessage = {
   seconds: number;
 };
 
-export type ServerMessage = SnapshotMessage | PixelMessage | ErrorMessage | CooldownMessage;
+export type ServerMessage = SnapshotMessage | PixelsMessage | ErrorMessage | CooldownMessage;
