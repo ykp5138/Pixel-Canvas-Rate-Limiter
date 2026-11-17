@@ -34,6 +34,10 @@ const placesSent = new Counter("places_sent");
 const pixelsAccepted = new Counter("pixels_accepted");
 const errorsReceived = new Counter("errors_received");
 const policyCloses = new Counter("policy_closes");
+// Survivor bots: time from losing the connection to having a fresh snapshot again
+const reconnectTime = new Trend("reconnect_time", true);
+const disconnects = new Counter("disconnects");
+const pixelsUnconfirmed = new Counter("pixels_unconfirmed");
 
 // ---------------------------------------------------------------------------
 // Scenarios
@@ -45,6 +49,7 @@ const ALL_SCENARIOS = {
   spammer: { exec: "spammer", vus: 2 },
   hopper: { exec: "hopper", vus: 2 },
   garbage: { exec: "garbage", vus: 1 },
+  survivor: { exec: "survivor", vus: 20 }, // not in the default BOTS list; used for failure tests
 };
 
 function rampStages(peak) {
@@ -267,3 +272,91 @@ export function garbage() {
   }
 }
 
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 10000;
+function reconnectDelayMs(attempt) {
+  const backoff = Math.min(RECONNECT_BASE_MS * (2**attempt), RECONNECT_MAX_MS);
+  return (Math.random() * backoff);
+}
+
+// Stays connected for a long visit and reconnects through server failures.
+let survivorId = null;
+export function survivor() {
+  if (!survivorId) survivorId = crypto.randomUUID();
+  let ws = null;
+  let attempt = 0;
+  let disconnectedAt = null; // when the connection dropped; null while healthy
+  let leaving = false; // visit is over, stop reconnecting
+  let reconnectTimer = null;
+  let placeTimer = null;
+  let pendingPixel = null;
+
+  function placeNow() {
+    if (!ws || ws.readyState !== 1) return;
+    const msg = randomPlace();
+    sendJson(ws, msg);
+    placesSent.add(1);
+    pendingPixel = { ...msg, sentAt: Date.now() };
+  }
+
+  function planPlacement(delayMs) {
+    if (placeTimer !== null) clearTimeout(placeTimer);
+    placeTimer = setTimeout(placeNow, delayMs);
+  }
+
+  function connect() {
+    reconnectTimer = null;
+    ws = openSocket(survivorId);
+
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.type === "snapshot") {
+        if(disconnectedAt !== null){
+          reconnectTime.add(Date.now() - disconnectedAt);
+          disconnectedAt = null;
+          attempt = 0;
+        }
+        planPlacement(randomMs(1, 5));
+      } else if (msg.type === "cooldown") {
+        planPlacement(msg.seconds * 1000 + randomMs(1, 5));
+      } else if (msg.type === "pixels") {
+        if (pendingPixel && msg.pixels.some((p) => p.x === pendingPixel.x && p.y === pendingPixel.y && p.color === pendingPixel.color)) {
+          pixelRoundTrip.add(Date.now() - pendingPixel.sentAt);
+          pixelsAccepted.add(1);
+          pendingPixel = null;
+        }
+      }
+    };
+
+    ws.onclose = (event) => {
+      if (placeTimer !== null) clearTimeout(placeTimer);
+      placeTimer = null;
+      if(event.code === 1008 || leaving){
+        return;
+      }
+      if(pendingPixel !== null) {
+        pixelsUnconfirmed.add(1);
+        pendingPixel = null;
+      }
+      if(disconnectedAt === null){
+        disconnectedAt = Date.now();
+        disconnects.add(1);
+      }
+      reconnectTimer = setTimeout(connect, reconnectDelayMs(attempt));
+      attempt++;
+    };
+  }
+
+  // Leave after a long visit (4-6 min)
+  setTimeout(() => {
+    leaving = true;
+    if(reconnectTimer !== null) {
+      clearTimeout(reconnectTimer);
+    }
+    if(ws && (ws.readyState === 1 || ws.readyState === 0)){
+      ws.close();
+    }
+  }, randomMs(240, 360));
+
+  connect();
+}
