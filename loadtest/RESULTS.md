@@ -52,3 +52,21 @@ Runs 0–5: before batching (each pixel broadcast immediately). Runs 6–9: afte
 
 - **Trade-off:** batching raises latency at low load (median round trip 16 ms → 63 ms at 1,500 users) in exchange for staying stable at much higher load.
 - **New ceiling not yet found** for 3 replicas: at 4,500 users latency had started rising (p95 134 ms → 179 ms in the last step), so the knee is likely somewhat above 4,500 on this laptop.
+
+## Failure tests on Kubernetes (milestone 7)
+
+**Setup:** local kind cluster (1 control plane + 2 workers, all on the same laptop), 3 app pods, Redis StatefulSet with a persistent volume. 1,500 simulated "survivor" users (`BOTS=survivor SCALE=75`): each stays connected, places pixels on cooldown, and on any disconnect reconnects with exponential backoff (1 s base, 10 s cap, full jitter). Pods drain for 5 s on SIGTERM (`DRAIN_MS=5000`) before closing sockets with 1001. Each failure was triggered 95 s into the test, with all 1,500 users connected.
+
+| Test | Failure | Users disconnected | Back to 1,500 connected | Reconnect time (p50 / p95 / max) | Pixel saves failed (server) | Unconfirmed placements* |
+|---|---|---|---|---|---|---|
+| F1 | Delete 1 of 3 app pods | 482 (that pod's users) | ~12 s after the disconnect | 2.8 s / 9.6 s / 11.6 s | 0 | 6 |
+| F2 | Rolling restart of all 3 app pods | 1,668 disconnects (some users twice) | ~45 s after the rollout started | 3.4 s / 6.9 s / 32.7 s | 0 | 47 |
+| F3 | Delete the Redis pod | 0 (WebSockets stayed open) | never dropped | n/a | ~150–200, over ~4–5 s | n/a |
+
+\* Placements sent but not confirmed before the connection closed. They may or may not have been saved.
+
+- **F1:** the deleted pod went unready immediately, kept serving its 482 users through the 5 s drain, then closed them with 1001. Kubernetes started a replacement pod. No pixel saves failed.
+- **F2:** pods were replaced one at a time (`maxUnavailable: 0`), so capacity never dropped below 3 ready pods. Some users reconnected to an old pod that was replaced moments later, so they were disconnected twice (1,668 disconnects for 1,500 users). The connection count dipped as low as 848 during the rollout and was fully back ~45 s after it started.
+- **F3:** app pods stayed alive (0 restarts) and kept every WebSocket open. Readiness went to 503 while Redis was down, placements failed fast with an error (no hangs), and the Redis pod was back within ~2 s. The entire canvas was identical before and after a Redis restart (same hash, 8,506 painted pixels), so the AOF volume persisted the data.
+- **Connections don't rebalance:** after F1, the replacement pod had 113 users while the two survivors had ~700 each. A Kubernetes Service balances new connections only, so long-lived WebSockets stay where they landed.
+- **Measurement notes:** F3's pixel round-trip max (2 m 29 s) is an artifact: a bot whose placement failed kept waiting and matched an identical pixel placed later. The marker-pixel persistence check was invalid (bots repainted most of the canvas), so persistence was verified separately with the canvas hash.

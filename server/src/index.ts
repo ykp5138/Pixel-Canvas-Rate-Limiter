@@ -39,7 +39,7 @@ const httpServer = createServer((req, res) => {
     res.end("ok");
     return;
   }
-  // TODO H3: /readyz
+
   if(req.url === "/readyz"){
     if(shuttingDown || !isRedisReady()){
       res.writeHead(503, {"Content-Type": "text/plain"});
@@ -197,7 +197,7 @@ wss.on("connection", async (socket, request) => {
       send(socket, { type: "cooldown", seconds: secondsLeft });
     }
   } catch (err) {
-    console.log("")
+    console.error("Failed to send snapshot:", err);
     socket.close(1013, "Server busy, try again");
   }
   
@@ -237,7 +237,7 @@ httpServer.listen(PORT, () => {
   console.log(`server listening on http://localhost:${PORT}`);
 });
 startMetricsServer(METRICS_PORT);
-// TODO C1c: start the metrics server on METRICS_PORT (env, default 9100)
+
 
 // ---------------------------------------------------------------------------
 // Shutdown
@@ -250,7 +250,6 @@ async function gracefulShutdown (signal: string): Promise<void> {
     return;
   }
   shuttingDown = true;
-  // TODO H4: drain delay
   await new Promise((resolve) => setTimeout(resolve,Number(process.env.DRAIN_MS ?? 0)));
   console.log(`${signal} received, shutting down`);
   httpServer.close();
