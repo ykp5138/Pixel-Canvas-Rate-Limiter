@@ -13,7 +13,8 @@
     "build:server": "tsc -p server",
     "build:client": "esbuild client/src/main.ts --bundle --minify --sourcemap --outfile=client/dist/main.js",
     "typecheck": "tsc -p server --noEmit && tsc -p client --noEmit",
-    "start": "node server/dist/server/src/index.js"
+    "start": "node server/dist/server/src/index.js",
+    "smoke": "node scripts/smoke.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

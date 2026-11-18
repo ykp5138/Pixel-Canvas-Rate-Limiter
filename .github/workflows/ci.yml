@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build image
+        run: docker build -t pixel-canvas:ci .
+
+      # Smoke test runs against the same image that gets deployed
+      - name: Start app container
+        run: >-
+          docker run -d --name app --network host
+          -e REDIS_URL=redis://localhost:6379
+          pixel-canvas:ci
+
+      - name: Smoke test
+        run: npm run smoke
+
+      - name: App logs
+        if: failure()
+        run: docker logs app
