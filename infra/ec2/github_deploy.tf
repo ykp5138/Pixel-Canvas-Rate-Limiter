@@ -1,9 +1,9 @@
 # Lets GitHub Actions deploy to the server without stored AWS keys (OIDC).
 
 variable "github_repo" {
-  description = "owner/name of the repo allowed to deploy"
+  description = "Repo allowed to deploy, as it appears in the OIDC sub claim (owner@id/name@id)"
   type        = string
-  default     = "ykp5138/Pixel-Canvas-Rate-Limiter"
+  default     = "ykp5138@179643739/Pixel-Canvas-Rate-Limiter@1452970467"
 }
 
 resource "aws_iam_openid_connect_provider" "github" {
