@@ -1,0 +1,18 @@
+#!/bin/bash
+# Runs once on first boot: installs Docker and starts Redis + the app.
+set -euxo pipefail
+
+dnf install -y docker
+systemctl enable --now docker
+
+docker network create pixel || true
+
+docker run -d --name redis --network pixel --restart unless-stopped \
+  -v redis-data:/data \
+  redis:7-alpine redis-server --appendonly yes
+
+docker run -d --name app --network pixel --restart unless-stopped \
+  -p 80:3000 \
+  -e REDIS_URL=redis://redis:6379 \
+  -e DRAIN_MS=0 \
+  ${app_image}

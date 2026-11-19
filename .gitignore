@@ -14,3 +14,9 @@ client/dist/
 .DS_Store
 Thumbs.db
 profiles/
+
+# Terraform: downloaded providers and state (state can hold secrets)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan

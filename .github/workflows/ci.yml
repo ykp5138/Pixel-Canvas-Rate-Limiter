@@ -9,6 +9,9 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
 
     services:
       redis:
@@ -51,3 +54,15 @@ jobs:
       - name: App logs
         if: failure()
         run: docker logs app
+
+      # Only images that passed the smoke test get published
+      - name: Push image to GHCR
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/pixel-canvas
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker tag pixel-canvas:ci "$IMAGE:latest"
+          docker tag pixel-canvas:ci "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+          docker push "$IMAGE:${{ github.sha }}"
