@@ -1,0 +1,32 @@
+# EKS version of k8s/ : image from GHCR, AWS load balancer in front of the app, EBS-backed Redis.
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone infra/eks/k8s | kubectl --context eks apply -f -
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../k8s
+  - storageclass.yaml
+images:
+  - name: pixel-canvas
+    newName: ghcr.io/ykp5138/pixel-canvas
+    newTag: latest
+patches:
+  - target:
+      kind: Deployment
+      name: app
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always
+  - target:
+      kind: Service
+      name: app
+    patch: |-
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: app
+        annotations:
+          # NLB: 350 s idle timeout, better for long-lived WebSockets than a Classic LB
+          service.beta.kubernetes.io/aws-load-balancer-type: nlb
+      spec:
+        type: LoadBalancer
