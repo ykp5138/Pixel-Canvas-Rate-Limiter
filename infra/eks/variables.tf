@@ -27,6 +27,7 @@ variable "node_instance_type" {
 }
 
 variable "node_count" {
-  type    = number
-  default = 2
+  description = "One node per AZ: the load balancer has an entrance in every default subnet's AZ"
+  type        = number
+  default     = 3
 }
